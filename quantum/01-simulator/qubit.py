@@ -44,23 +44,46 @@ class Qubit:
         """ Returns: [P(|0>), P(|1>)]"""
         return np.abs(self.state)** 2
 
-    def measure(self) -> int:
+    def measure(self, basis: str = 'Z') -> int:
         """
-        Process :-
-        1. Compute outcome probabilites vis the Born rule.
-        2. sample a classical outcome (0 or 1)
-        3. Collapse the statevector to the corresponding basis state.
-        4. Return the classical outcome.
+        Measure the qubit in given basis.
+        basis : str
+            'Z' — computational basis {|0⟩, |1⟩}  (default)
+            'X' — Hadamard basis {|+⟩, |−⟩}
+            'Y' — Y basis {|i+⟩, |i-⟩}
+        """
+        from gates import apply, H, S
 
-        This is a destructive operation: after calling measure(), the
-        qubit is in a definite classical state - all quantum information
-        in the original superposition is irreversibly lost.
-        """
-        probs = self.probabilites
+        if basis == 'Z':
+            rotated = self.state.copy()
+        elif basis == 'X':
+            import copy
+            temp = copy.deepcopy(self)
+            apply(H(), temp)
+            rotated = temp.state
+        elif basis == 'Y':
+            import copy
+            temp = copy.deepcopy(self)
+            Sdagger = np.conj(S()).T
+            apply(H(), temp)
+            apply(Sdagger, temp)
+            rotated = temp.state
+        else:
+             raise ValueError(f"Unknown basis '{basis}'. Choose 'X','Y', or 'Z'.")
+
+        probs = np.abs(rotated) ** 2
         outcome = int(np.random.choice([0, 1], p=probs))
-        self.state = np.array([1.0, 0,0] if outcome == 0 else [0.0, 1.0], dtype=complex)
 
+        self.state = np.array(
+            [1.0, 0.0] if outcome == 0 else [0.0, 1.0],
+            dtype = complex
+        )
         return outcome
+
+    @property
+    def expectation_Z(self) -> float:
+        p = self.probabilities
+        return float(p[0] - p[1])
 
     def __repr__(self) -> str:
         a, b = self.alpha, self.beta
