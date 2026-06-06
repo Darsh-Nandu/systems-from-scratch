@@ -40,7 +40,7 @@ class Qubit:
         return self.state[1]
 
     @property
-    def probabilites(self) -> np.ndarray:
+    def probabilities(self) -> np.ndarray:
         """ Returns: [P(|0>), P(|1>)]"""
         return np.abs(self.state)** 2
 
@@ -64,7 +64,7 @@ class Qubit:
 
     def __repr__(self) -> str:
         a, b = self.alpha, self.beta
-        p0, p1 = self.probabilites
+        p0, p1 = self.probabilities
         return (
             f"Qubit(\n"
             f"  |ψ⟩ = ({a.real:+.4f}{a.imag:+.4f}i)|0⟩ "
