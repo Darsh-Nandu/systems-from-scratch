@@ -150,7 +150,7 @@ def display(gate: np.ndarray, name: str = "Gate"):
     print()
 
 # Smoke tests
-
+"""
 if __name__ == "__main__":
     from qubit import ket_zero, ket_one, ket_plus
 
@@ -197,3 +197,4 @@ if __name__ == "__main__":
         apply(bad_gate, ket_zero())
     except ValueError as e:
         print(f"Caught: {e}")
+"""

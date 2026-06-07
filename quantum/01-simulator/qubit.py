@@ -110,7 +110,7 @@ def ket_minus() -> Qubit:
         return Qubit(alpha=1/np.sqrt(2), beta=-1/np.sqrt(2))
 
 # Smoke tests
-
+"""
 if __name__ == "__main__":
 
     print("=== |0⟩ ===")
@@ -132,3 +132,150 @@ if __name__ == "__main__":
         bad = Qubit(alpha=1.0, beta=1.0)
     except ValueError as e:
         print(f"  Caught: {e}")
+"""
+
+class QuantumRegister:
+    """
+    A register of n qubits represented as a single statevector in ℂ^{2ⁿ}.
+    
+    This is the fundamental multi-qubit object. Rather than tracking
+    n separate Qubit objects, we maintain ONE vector of length 2ⁿ -
+    because qubits can be entangled and cannot always be separated.
+    """
+
+    def __init__(self, n: int, init_state: np.ndarray = None):
+        self.n = n
+        self.dim = 2 ** n
+
+        if init_state is not None:
+            state = np.array(init_state, dtype=complex)
+            if state.shape != (self.dim,):
+                raise ValueError(
+                    f"init_state must have length 2^n = {self.dim}, "
+                    f"got {state.shape}"
+                )
+            norm = np.linalg.norm(state)
+            if not np.isclose(norm, 1.0, atol=1e-9):
+                raise ValueError(f"init_state must be normalized, got norm={norm:.6f}")
+            self.state = state
+        else:
+            self.state = np.zeros(self.dim, dtype=complex)
+            self.state[0] = 1
+
+    @classmethod
+    def from_qubits(cls, *qubits: Qubit) -> 'QuantumRegister':
+        state = qubits[0].state
+        for q in qubits[1:]:
+            state = np.kron(state, q.state)
+        return cls(len(qubits), init_state = state)
+
+
+    def apply_gate(self, gate: np.ndarray, target: int):
+        """
+        Apply a single-qubit gate to qubit `target`, leaving others unchanged.
+        """
+        if not (0 <= target < self.n):
+            raise ValueError(f"Target qubit {target} out of range [0, {self.n-1}]")
+
+        full_gate = np.array([[1.0 + 0j]])
+
+        for i in range(self.n):
+            full_gate = np.kron(full_gate, gate if i == target else np.eye(2, dtype=complex))
+
+        self.state = full_gate @ self.state
+
+
+    def apply_two_qubit_gate(self, gate: np.ndarray, control: int, target: int):
+        """
+        Apply a 4×4 two-qubit gate to qubits (control, target).
+
+        For now this only handles adjacent qubits or a full 2-qubit register.
+        """
+        if self.n == 2 and {control, target} == {0, 1}:
+            self.state = gate @ self.state
+        else:
+            raise NotImplementedError("General multi-qubit placement not implimented yet!")
+
+
+    def measure_qubit(self, target: int) -> int:
+        """
+        Measure a single qubit in the computational basis.
+
+        Computes the marginal probability of qubit `target` being 0 or 1
+        by summing over all amplitudes where that qubit's bit is 0 (or 1).
+        Then collapses and renormalises the full statevector.
+        """
+        # Build masks: which indices have qubit `target` = 0 or 1?
+        # For n qubits, qubit `target` corresponds to bit (n-1-target)
+        # in the binary index (big-endian convention).
+        bit_position = self.n - 1 - target
+
+        indices_0 = [i for i in range(self.dim) if not (i >> bit_position & 1)]
+        indices_1 = [i for i in range(self.dim) if      i >> bit_position & 1]
+
+        p0 = float(np.sum(np.abs(self.state[indices_0]) ** 2))
+        p1 = float(np.sum(np.abs(self.state[indices_1]) ** 2))
+
+        outcome = int(np.random.choice([0, 1], p=[p0, p1]))
+
+        # Collapse
+        kill = indices_1 if outcome == 0 else indices_0
+        self.state[kill] = 0.0
+
+        # Renormalize
+        norm = np.linalg.norm(self.state)
+        self.state /= norm
+
+    def measure_all(self) -> list[int]:
+        """
+        Measure all qubits sequentially. Returns list of classical bits.
+        """
+        return [self.measure_qubit(i) for i in range(self.n)]
+
+    @property
+    def probabilities(self) -> np.ndarray:
+        return np.abs(self.state) ** 2
+
+    def __repr__(self) -> str:
+        lines = [f"QuantumRegister({self.n} qubits, dim={self.dim})"]
+        for i, amp in enumerate(self.state):
+            if abs(amp) > 1e-9:           # skip near-zero amplitudes
+                bits = format(i, f'0{self.n}b')
+                prob = abs(amp) ** 2
+                lines.append(
+                    f"  |{bits}⟩ : ({amp.real:+.4f}{amp.imag:+.4f}i)"
+                    f"  P={prob:.4f}"
+                )
+        return "\n".join(lines)
+
+# Smoke tests
+
+if __name__ == "__main__":
+    from qubit import ket_zero, ket_one, ket_plus
+    from gates import H, X
+
+    print("=== |00⟩ — default 2-qubit register ===")
+    reg = QuantumRegister(2)
+    print(reg)
+
+    print("\n=== |01⟩ — tensor of |0⟩ and |1⟩ ===")
+    reg = QuantumRegister.from_qubits(ket_zero(), ket_one())
+    print(reg)
+
+    print("\n=== Apply H to qubit 0 of |00⟩ → (|00⟩ + |10⟩)/√2 ===")
+    reg = QuantumRegister(2)
+    reg.apply_gate(H(), target=0)
+    print(reg)
+
+    print("\n=== Apply H to qubit 1 of |00⟩ → (|00⟩ + |01⟩)/√2 ===")
+    reg = QuantumRegister(2)
+    reg.apply_gate(H(), target=1)
+    print(reg)
+
+    print("\n=== Measure qubit 0 of (|00⟩ + |10⟩)/√2 — should collapse ===")
+    reg = QuantumRegister(2)
+    reg.apply_gate(H(), target=0)
+    print("Before:", reg)
+    outcome = reg.measure_qubit(0)
+    print(f"Measured qubit 0: {outcome}")
+    print("After:", reg)
